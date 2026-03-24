@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invoice Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root {
+  --bg: #f8f9fa;
+  --surface: #ffffff;
+  --text: #1a1a2e;
+  --text2: #555;
+  --border: #e0e0e0;
+  --green: #1a8a5f;
+  --blue: #3266ad;
+  --amber: #c47f17;
+  --coral: #c0502a;
+  --red: #a32d2d;
+  --green-bg: #e8f5ef;
+  --blue-bg: #e8eff8;
+  --amber-bg: #fdf3e0;
+  --coral-bg: #fce8e3;
+  --red-bg: #f5e0e0;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1c25;
+    --text: #e4e4e8;
+    --text2: #9a9aa8;
+    --border: #2a2c38;
+    --green: #2ecc88;
+    --blue: #5b9cf5;
+    --amber: #e6a630;
+    --coral: #e8734a;
+    --red: #e05555;
+    --green-bg: #1a2e24;
+    --blue-bg: #1a2440;
+    --amber-bg: #2e2518;
+    --coral-bg: #2e1a18;
+    --red-bg: #2e1a1a;
+  }
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  padding: 24px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+h1 { font-size: 1.5rem; font-weight: 700; }
+h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 16px; }
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+.updated {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--text2);
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+.card .label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text2);
+  margin-bottom: 4px;
+}
+.card .value {
+  font-family: 'DM Mono', monospace;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+.card.green .value { color: var(--green); }
+.card.blue .value { color: var(--blue); }
+.card.amber .value { color: var(--amber); }
+.card.coral .value { color: var(--coral); }
+.card.red .value { color: var(--red); }
+.chart-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+@media (max-width: 768px) { .chart-row { grid-template-columns: 1fr; } }
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+.filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.filters button {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8rem;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.filters button.active,
+.filters button:hover {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+}
+canvas { max-height: 400px; }
+</style>
+</head>
+<body>
+<script>/* __DATA__ */</script>
+<div class="header">
+  <h1>Invoice Dashboard</h1>
+  <span class="updated" id="ts"></span>
+</div>
+
+<div class="cards" id="cards"></div>
+
+<div class="chart-row">
+  <div class="panel">
+    <h2>Outcome Split</h2>
+    <canvas id="donut"></canvas>
+  </div>
+  <div class="panel">
+    <h2>Failure Funnel (absolute)</h2>
+    <canvas id="funnel"></canvas>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Per-Provider Breakdown</h2>
+  <div class="filters">
+    <button class="active" data-filter="top20">Top 20 by volume</button>
+    <button data-filter="success">Highest success</button>
+    <button data-filter="blocked">Most blocked</button>
+    <button data-filter="all">All providers</button>
+  </div>
+  <canvas id="stacked"></canvas>
+</div>
+
+<script>
+const cs = getComputedStyle(document.documentElement);
+const C = {
+  green: cs.getPropertyValue('--green').trim(),
+  blue: cs.getPropertyValue('--blue').trim(),
+  amber: cs.getPropertyValue('--amber').trim(),
+  coral: cs.getPropertyValue('--coral').trim(),
+  red: cs.getPropertyValue('--red').trim(),
+};
+
+document.getElementById('ts').textContent = 'Updated ' + S.updated;
+
+const cardData = [
+  { label: 'Total Attempts', value: S.total.toLocaleString(), cls: '' },
+  { label: 'Success Rate', value: S.success + '%', cls: 'green' },
+  { label: 'Login Blocked', value: S.login + '%', cls: 'blue' },
+  { label: 'Fetch Failed', value: S.fetch_failed + '%', cls: 'coral' },
+  { label: 'Captcha + Blocked', value: (S.captcha + S.blocked).toFixed(2) + '%', cls: 'red' },
+];
+const cardsEl = document.getElementById('cards');
+cardData.forEach(c => {
+  const div = document.createElement('div');
+  div.className = 'card ' + c.cls;
+  div.innerHTML = `<div class="label">${c.label}</div><div class="value">${c.value}</div>`;
+  cardsEl.appendChild(div);
+});
+
+new Chart(document.getElementById('donut'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Success', 'Login Blocked', 'Captcha', 'Fetch Failed', 'Blocked'],
+    datasets: [{
+      data: [S.success, S.login, S.captcha, S.fetch_failed, S.blocked],
+      backgroundColor: [C.green, C.blue, C.amber, C.coral, C.red],
+      borderWidth: 0,
+    }]
+  },
+  options: {
+    cutout: '60%',
+    plugins: {
+      legend: { position: 'bottom', labels: { color: cs.getPropertyValue('--text').trim(), font: { family: 'DM Sans' } } }
+    }
+  }
+});
+
+const funnelLabels = ['Login Blocked', 'Fetch Failed', 'Captcha', 'Blocked'];
+const funnelValues = [
+  Math.round(S.total * S.login / 100),
+  Math.round(S.total * S.fetch_failed / 100),
+  Math.round(S.total * S.captcha / 100),
+  Math.round(S.total * S.blocked / 100),
+];
+const funnelColors = [C.blue, C.coral, C.amber, C.red];
+new Chart(document.getElementById('funnel'), {
+  type: 'bar',
+  data: {
+    labels: funnelLabels,
+    datasets: [{
+      data: funnelValues,
+      backgroundColor: funnelColors,
+      borderRadius: 4,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { color: cs.getPropertyValue('--border').trim() }, ticks: { color: cs.getPropertyValue('--text2').trim() } },
+      y: { grid: { display: false }, ticks: { color: cs.getPropertyValue('--text').trim(), font: { family: 'DM Sans' } } }
+    }
+  }
+});
+
+let stackedChart;
+function buildStacked(filter) {
+  let data = [...D];
+  if (filter === 'top20') data = data.sort((a, b) => b.a - a.a).slice(0, 20);
+  else if (filter === 'success') data = data.sort((a, b) => b.s - a.s).slice(0, 20);
+  else if (filter === 'blocked') data = data.sort((a, b) => (b.b + b.ca) - (a.b + a.ca)).slice(0, 20);
+
+  const labels = data.map(d => d.n);
+  const datasets = [
+    { label: 'Success %', data: data.map(d => d.s), backgroundColor: C.green },
+    { label: 'Login %', data: data.map(d => d.l), backgroundColor: C.blue },
+    { label: 'Captcha %', data: data.map(d => d.ca), backgroundColor: C.amber },
+    { label: 'Fetch Fail %', data: data.map(d => d.f), backgroundColor: C.coral },
+    { label: 'Blocked %', data: data.map(d => d.b), backgroundColor: C.red },
+  ];
+
+  if (stackedChart) stackedChart.destroy();
+  stackedChart = new Chart(document.getElementById('stacked'), {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      plugins: {
+        legend: { position: 'top', labels: { color: cs.getPropertyValue('--text').trim(), font: { family: 'DM Sans', size: 11 } } }
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: { color: cs.getPropertyValue('--text').trim(), font: { family: 'DM Sans', size: 10 }, maxRotation: 45 },
+          grid: { display: false }
+        },
+        y: {
+          stacked: true,
+          max: 100,
+          ticks: { color: cs.getPropertyValue('--text2').trim(), callback: v => v + '%' },
+          grid: { color: cs.getPropertyValue('--border').trim() }
+        }
+      }
+    }
+  });
+}
+
+document.querySelector('.filters').addEventListener('click', e => {
+  if (e.target.tagName !== 'BUTTON') return;
+  document.querySelectorAll('.filters button').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  buildStacked(e.target.dataset.filter);
+});
+
+buildStacked('top20');
+</script>
+</body>
+</html>
