@@ -2,10 +2,9 @@ name: Build Dashboard
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    # Run daily at 06:00 UTC (09:00 Sofia time)
+    - cron: "0 6 * * *"
   workflow_dispatch:
-  repository_dispatch:
-    types: [bq-updated]
 
 permissions:
   contents: write
@@ -15,8 +14,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      HAS_GCP_KEY: ${{ secrets.GCP_SA_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,20 +21,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install BigQuery SDK (if GCP configured)
-        if: env.HAS_GCP_KEY == 'true'
-        run: pip install google-cloud-bigquery
-
       - name: Authenticate to GCP
-        if: env.HAS_GCP_KEY == 'true'
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
       - name: Build dashboard
         run: python scripts/build_dashboard.py
-        env:
-          BQ_QUERY: ${{ vars.BQ_QUERY }}
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
