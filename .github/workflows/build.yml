@@ -2,8 +2,9 @@ name: Build Dashboard
 
 on:
   schedule:
-    # Run daily at 06:00 UTC (09:00 Sofia time)
-    - cron: "0 6 * * *"
+    - cron: "0 3 * * *"   # 06:00 Sofia
+    - cron: "0 10 * * *"  # 13:00 Sofia
+    - cron: "0 14 * * *"  # 17:00 Sofia
   workflow_dispatch:
 
 permissions:
