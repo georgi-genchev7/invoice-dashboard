@@ -21,11 +21,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Authenticate to GCP (Workload Identity Federation)
+      - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: projects/70463116640/locations/global/workloadIdentityPools/github-actions/providers/github-oidc
-          service_account: dashboard-fetch-perf@invoice-dash-2026.iam.gserviceaccount.com
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
