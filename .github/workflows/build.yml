@@ -9,7 +9,6 @@ on:
 permissions:
   contents: write
   pages: write
-  id-token: write
 
 jobs:
   build:
@@ -21,16 +20,21 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+      - name: Set up GCP credentials
+        run: |
+          echo '${{ secrets.GCP_CREDENTIALS }}' > /tmp/gcp-creds.json
+          echo "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=/tmp/gcp-creds.json" >> "$GITHUB_ENV"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-creds.json" >> "$GITHUB_ENV"
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Build dashboard
         run: python scripts/build_dashboard.py
+
+      - name: Clean up credentials
+        if: always()
+        run: rm -f /tmp/gcp-creds.json
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
