@@ -29,7 +29,10 @@ jobs:
         run: |
           echo '${{ secrets.GCP_CREDENTIALS }}' > /tmp/gcp-creds.json
           gcloud auth login --cred-file=/tmp/gcp-creds.json --quiet 2>/dev/null \
-            || gcloud config set auth/credential_file_override /tmp/gcp-creds.json
+            || true
+          gcloud config set auth/credential_file_override /tmp/gcp-creds.json
+          echo "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=/tmp/gcp-creds.json" >> "$GITHUB_ENV"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-creds.json" >> "$GITHUB_ENV"
 
       - name: Build dashboard
         run: python scripts/build_dashboard.py
