@@ -39,9 +39,10 @@ jobs:
 
       - name: Upload to GCS
         run: |
-          gsutil -h "Content-Type:text/html; charset=utf-8" \
-                 -h "Cache-Control:no-cache, max-age=0" \
-                 cp output/agent-fetch-dashboard.html gs://expense-automation-dashboards/agent-fetch-dashboard.html
+          gcloud storage cp output/agent-fetch-dashboard.html \
+            gs://expense-automation-dashboards/agent-fetch-dashboard.html \
+            --content-type="text/html; charset=utf-8" \
+            --cache-control="no-cache, max-age=0"
 
       - name: Clean up credentials
         if: always()
