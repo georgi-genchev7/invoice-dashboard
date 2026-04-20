@@ -22,11 +22,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Set up GCP credentials
-        run: |
-          echo '${{ secrets.GCP_CREDENTIALS }}' > /tmp/gcp-creds.json
-          echo "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE=/tmp/gcp-creds.json" >> "$GITHUB_ENV"
-          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-creds.json" >> "$GITHUB_ENV"
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -39,7 +38,3 @@ jobs:
           gsutil -h "Content-Type:text/html; charset=utf-8" \
                  -h "Cache-Control:no-cache, max-age=0" \
                  cp output/agent-fetch-dashboard.html gs://expense-automation-dashboards/agent-fetch-dashboard.html
-
-      - name: Clean up credentials
-        if: always()
-        run: rm -f /tmp/gcp-creds.json
