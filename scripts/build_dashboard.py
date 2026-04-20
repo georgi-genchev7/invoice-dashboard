@@ -17,6 +17,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -88,8 +89,8 @@ def classify(account_id: str) -> str:
 # ── BigQuery fetch ──────────────────────────────────────────────────
 
 
-def fetch_bq_rows() -> list[dict]:
-    """Run the query via bq CLI (works with gcloud auth and SA keys)."""
+def fetch_bq_rows(max_retries: int = 3, backoff: int = 10) -> list[dict]:
+    """Run the query via bq CLI with retries on transient failures."""
     cmd = [
         "bq",
         "query",
@@ -100,17 +101,28 @@ def fetch_bq_rows() -> list[dict]:
         "--max_rows=100000",
         BQ_QUERY,
     ]
-    print(f"Running BigQuery query against {BQ_PROJECT} ...")
-    result = subprocess.run(cmd, capture_output=True, text=True)
 
-    if result.returncode != 0:
+    for attempt in range(1, max_retries + 1):
+        print(
+            f"Running BigQuery query against {BQ_PROJECT} (attempt {attempt}/{max_retries}) ..."
+        )
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            rows = json.loads(result.stdout)
+            print(f"Fetched {len(rows)} rows from BigQuery")
+            return rows
+
         print(f"bq query failed (exit {result.returncode}):", file=sys.stderr)
         print(result.stderr, file=sys.stderr)
-        sys.exit(1)
 
-    rows = json.loads(result.stdout)
-    print(f"Fetched {len(rows)} rows from BigQuery")
-    return rows
+        if attempt < max_retries:
+            wait = backoff * attempt
+            print(f"Retrying in {wait}s ...", file=sys.stderr)
+            time.sleep(wait)
+
+    print("All retries exhausted", file=sys.stderr)
+    sys.exit(1)
 
 
 # ── Transform rows to RAW format ────────────────────────────────────
@@ -166,7 +178,7 @@ def main():
     html = build_html(raw)
 
     OUTPUT_DIR.mkdir(exist_ok=True)
-    output_path = OUTPUT_DIR / "index.html"
+    output_path = OUTPUT_DIR / "agent-fetch-dashboard.html"
     output_path.write_text(html)
 
     # Stats summary

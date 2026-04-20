@@ -6,10 +6,11 @@ on:
     - cron: "0 10 * * *"  # 13:00 Sofia
     - cron: "0 14 * * *"  # 17:00 Sofia
   workflow_dispatch:
+  repository_dispatch:
+    types: [data-updated]
 
 permissions:
-  contents: write
-  pages: write
+  contents: read
 
 jobs:
   build:
@@ -33,13 +34,12 @@ jobs:
       - name: Build dashboard
         run: python scripts/build_dashboard.py
 
+      - name: Upload to GCS
+        run: |
+          gsutil -h "Content-Type:text/html; charset=utf-8" \
+                 -h "Cache-Control:no-cache, max-age=0" \
+                 cp output/agent-fetch-dashboard.html gs://expense-automation-dashboards/agent-fetch-dashboard.html
+
       - name: Clean up credentials
         if: always()
         run: rm -f /tmp/gcp-creds.json
-
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./output
-          force_orphan: true
