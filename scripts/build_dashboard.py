@@ -67,6 +67,127 @@ ORDER BY
   SUCCESS DESC, FETCH_FAILED DESC, ATTEMPTS DESC
 """.strip()
 
+SESSION_QUERY = """
+WITH FinalThreadStatus AS (
+  SELECT
+    user_id,
+    account_id,
+    provider_id,
+    provider_name,
+    thread_id,
+    task_completion_status,
+    createdAt AS thread_time
+  FROM `product_metrics.browser_use_processing_event`
+  WHERE provider_id IS NOT NULL
+    AND user_id IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY thread_id
+    ORDER BY
+      IF(task_completion_status = 'task_completed', 1, 0) DESC,
+      createdAt DESC
+  ) = 1
+),
+-- Pairs of consecutive login events per user × vendor
+LoginPairs AS (
+  SELECT
+    user_id,
+    account_id,
+    provider_id,
+    provider_name,
+    thread_time AS login_time,
+    LEAD(thread_time) OVER (
+      PARTITION BY user_id, provider_id
+      ORDER BY thread_time
+    ) AS next_login_time
+  FROM FinalThreadStatus
+  WHERE task_completion_status IN ('login_requested', 'reconnect_requested')
+),
+-- Only keep pairs where the user actually completed at least one fetch in between,
+-- confirming they logged in and the session was real.
+-- Active sessions (no subsequent login prompt yet) use CURRENT_TIMESTAMP() as the running end.
+ValidSessions AS (
+  SELECT
+    l.user_id,
+    l.account_id,
+    l.provider_name,
+    (l.next_login_time IS NULL) AS is_active,
+    ROUND(
+      TIMESTAMP_DIFF(
+        COALESCE(l.next_login_time, CURRENT_TIMESTAMP()),
+        l.login_time,
+        MINUTE
+      ) / 60.0,
+      1
+    ) AS session_hours,
+    (
+      SELECT COUNT(*)
+      FROM FinalThreadStatus s
+      WHERE s.user_id    = l.user_id
+        AND s.provider_id = l.provider_id
+        AND s.thread_time > l.login_time
+        AND (l.next_login_time IS NULL OR s.thread_time < l.next_login_time)
+    ) AS fetch_attempts,
+    (
+      SELECT COUNTIF(s.task_completion_status = 'task_completed')
+      FROM FinalThreadStatus s
+      WHERE s.user_id    = l.user_id
+        AND s.provider_id = l.provider_id
+        AND s.thread_time > l.login_time
+        AND (l.next_login_time IS NULL OR s.thread_time < l.next_login_time)
+    ) AS successful_fetches
+  FROM LoginPairs l
+  WHERE (
+    -- Closed session: a subsequent login prompt confirms the session ended;
+    -- one task_completed in between is enough to confirm the user actually logged in.
+    (l.next_login_time IS NOT NULL AND EXISTS (
+      SELECT 1 FROM FinalThreadStatus s
+      WHERE s.user_id    = l.user_id
+        AND s.provider_id = l.provider_id
+        AND s.task_completion_status = 'task_completed'
+        AND s.thread_time > l.login_time
+        AND s.thread_time < l.next_login_time
+    ))
+    OR
+    -- Active session: no re-login prompt yet.
+    -- Require at least one task_completed (confirms login happened) AND
+    -- at least 2 total fetch attempts of any kind (confirms ongoing use —
+    -- rules out one-off fetches that were never retried, which would show
+    -- no re-login only because nobody tried again).
+    (l.next_login_time IS NULL
+      AND EXISTS (
+        SELECT 1 FROM FinalThreadStatus s
+        WHERE s.user_id    = l.user_id
+          AND s.provider_id = l.provider_id
+          AND s.task_completion_status = 'task_completed'
+          AND s.thread_time > l.login_time
+      )
+      AND (
+        SELECT COUNT(*) FROM FinalThreadStatus s
+        WHERE s.user_id    = l.user_id
+          AND s.provider_id = l.provider_id
+          AND s.thread_time > l.login_time
+      ) >= 2
+    )
+  )
+)
+SELECT
+  user_id,
+  account_id,
+  provider_name,
+  COUNT(*) AS sessions,
+  COUNTIF(is_active) AS active_sessions,
+  ROUND(AVG(session_hours), 1) AS avg_hours,
+  MIN(session_hours) AS min_hours,
+  MAX(session_hours) AS max_hours,
+  APPROX_QUANTILES(session_hours, 100)[OFFSET(50)] AS p50_hours,
+  ROUND(AVG(fetch_attempts), 1) AS avg_fetch_attempts,
+  ROUND(AVG(successful_fetches), 1) AS avg_successful_fetches
+FROM ValidSessions
+WHERE session_hours > 0
+GROUP BY user_id, account_id, provider_name
+ORDER BY sessions DESC
+""".strip()
+
 # ── Segment classification ──────────────────────────────────────────
 
 INTERNAL_ACCOUNTS = {
@@ -89,7 +210,7 @@ def classify(account_id: str) -> str:
 # ── BigQuery fetch ──────────────────────────────────────────────────
 
 
-def fetch_bq_rows(max_retries: int = 3, backoff: int = 10) -> list[dict]:
+def fetch_bq_rows(query: str = BQ_QUERY, max_retries: int = 3, backoff: int = 10) -> list[dict]:
     """Run the query via bq CLI with retries on transient failures."""
     cmd = [
         "bq",
@@ -99,7 +220,7 @@ def fetch_bq_rows(max_retries: int = 3, backoff: int = 10) -> list[dict]:
         "--use_legacy_sql=false",
         "--format=json",
         "--max_rows=100000",
-        BQ_QUERY,
+        query,
     ]
 
     for attempt in range(1, max_retries + 1):
@@ -151,15 +272,41 @@ def transform_rows(rows: list[dict]) -> list[dict]:
     return raw
 
 
+def transform_session_rows(rows: list[dict]) -> list[dict]:
+    """Convert session gap BQ rows into the compact format the dashboard expects."""
+    result = []
+    for row in rows:
+        try:
+            result.append(
+                {
+                    "uid": row["user_id"],
+                    "aid": row["account_id"],
+                    "pn": row["provider_name"],
+                    "n": int(row["sessions"]),
+                    "active": int(row["active_sessions"]) > 0,
+                    "avg": round(float(row["avg_hours"]), 1),
+                    "p50": round(float(row["p50_hours"]), 1),
+                    "min": round(float(row["min_hours"]), 1),
+                    "max": round(float(row["max_hours"]), 1),
+                    "avg_attempts": round(float(row["avg_fetch_attempts"]), 1),
+                    "avg_successes": round(float(row["avg_successful_fetches"]), 1),
+                    "seg": classify(row["account_id"]),
+                }
+            )
+        except (ValueError, TypeError, KeyError):
+            continue
+    return result
+
+
 # ── Build HTML ──────────────────────────────────────────────────────
 
 
-def build_html(raw_data: list[dict]) -> str:
+def build_html(raw_data: list[dict], session_data: list[dict]) -> str:
     template = TEMPLATE_PATH.read_text()
-    data_js = json.dumps(raw_data, separators=(",", ":"))
-    html = template.replace("/* __RAW_DATA__ */", data_js)
+    html = template.replace("/* __RAW_DATA__ */", json.dumps(raw_data, separators=(",", ":")))
+    html = html.replace("/* __SESSION_DATA__ */", json.dumps(session_data, separators=(",", ":")))
 
-    if "/* __RAW_DATA__ */" in html:
+    if "/* __RAW_DATA__ */" in html or "/* __SESSION_DATA__ */" in html:
         print(
             "ERROR: placeholder was not replaced — check template.html", file=sys.stderr
         )
@@ -172,10 +319,15 @@ def build_html(raw_data: list[dict]) -> str:
 
 
 def main():
-    rows = fetch_bq_rows()
+    rows = fetch_bq_rows(BQ_QUERY)
     raw = transform_rows(rows)
 
-    html = build_html(raw)
+    print("Running session length query ...")
+    session_rows = fetch_bq_rows(SESSION_QUERY)
+    sessions = transform_session_rows(session_rows)
+    print(f"Fetched {len(sessions)} session-length pairs")
+
+    html = build_html(raw, sessions)
 
     OUTPUT_DIR.mkdir(exist_ok=True)
     output_path = OUTPUT_DIR / "agent-fetch-dashboard.html"
