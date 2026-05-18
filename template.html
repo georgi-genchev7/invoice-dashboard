@@ -7,8 +7,8 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#fafaf8;--surface:#fff;--surface2:#f3f2ef;--text:#1a1a1a;--text2:#6b6b6b;--text3:#9a9a9a;--border:#e5e4e0;--success:#1a8a5f;--login:#3266ad;--captcha:#c47f17;--fetch:#c0502a;--blocked:#a32d2d;--seg-pw:#3266ad;--seg-cu:#1a8a5f;--seg-in:#7B61B8;--ini-chat:#c47f17;--ini-chase:#7B61B8;--radius:10px;--font:'DM Sans',system-ui,sans-serif;--mono:'DM Mono',monospace}
-@media(prefers-color-scheme:dark){:root{--bg:#161616;--surface:#1e1e1e;--surface2:#2a2a2a;--text:#e8e8e8;--text2:#999;--text3:#666;--border:#333;--success:#3cc88a;--login:#6fa3e0;--captcha:#e0b050;--fetch:#e08060;--blocked:#e06060;--seg-pw:#6fa3e0;--seg-cu:#3cc88a;--seg-in:#a78bfa;--ini-chat:#e0b050;--ini-chase:#a78bfa}}
+:root{--bg:#fafaf8;--surface:#fff;--surface2:#f3f2ef;--text:#1a1a1a;--text2:#6b6b6b;--text3:#9a9a9a;--border:#e5e4e0;--success:#1a8a5f;--login:#3266ad;--captcha:#c47f17;--fetch:#c0502a;--blocked:#a32d2d;--seg-pw:#3266ad;--seg-cu:#1a8a5f;--seg-in:#7B61B8;--ini-chat:#c47f17;--ini-chase:#7B61B8;--ini-sched:#2d8a8a;--radius:10px;--font:'DM Sans',system-ui,sans-serif;--mono:'DM Mono',monospace}
+@media(prefers-color-scheme:dark){:root{--bg:#161616;--surface:#1e1e1e;--surface2:#2a2a2a;--text:#e8e8e8;--text2:#999;--text3:#666;--border:#333;--success:#3cc88a;--login:#6fa3e0;--captcha:#e0b050;--fetch:#e08060;--blocked:#e06060;--seg-pw:#6fa3e0;--seg-cu:#3cc88a;--seg-in:#a78bfa;--ini-chat:#e0b050;--ini-chase:#a78bfa;--ini-sched:#5ec8c8}}
 body{font-family:var(--font);background:var(--bg);color:var(--text);padding:2rem;max-width:1100px;margin:0 auto}
 h1{font-size:20px;font-weight:600;margin-bottom:4px}
 .subtitle{font-size:13px;color:var(--text2);margin-bottom:8px}
@@ -24,6 +24,7 @@ h1{font-size:20px;font-weight:600;margin-bottom:4px}
 .pill-seg[data-seg=internal].active{background:var(--seg-in);border-color:var(--seg-in);color:#fff}
 .pill-ini[data-ini=chat].active{background:var(--ini-chat);border-color:var(--ini-chat);color:#fff}
 .pill-ini[data-ini=chasing].active{background:var(--ini-chase);border-color:var(--ini-chase);color:#fff}
+.pill-ini[data-ini=schedule].active{background:var(--ini-sched);border-color:var(--ini-sched);color:#fff}
 .acct-search{font-family:var(--font);font-size:12px;padding:4px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--text);width:220px;outline:none}
 .active-tag{font-size:10px;padding:3px 8px 3px 10px;border-radius:12px;background:var(--surface2);color:var(--text2);display:inline-flex;align-items:center;gap:4px}
 .active-tag .x{cursor:pointer;font-weight:600;font-size:12px;color:var(--text3);line-height:1}
@@ -115,6 +116,7 @@ h1{font-size:20px;font-weight:600;margin-bottom:4px}
     <button class="pill pill-ini active" data-ini="all">All</button>
     <button class="pill pill-ini" data-ini="chat">User prompt</button>
     <button class="pill pill-ini" data-ini="chasing">Auto chasing</button>
+    <button class="pill pill-ini" data-ini="schedule">Schedule</button>
   </div>
   <div class="filter-row">
     <label>Account</label>
@@ -128,6 +130,7 @@ h1{font-size:20px;font-weight:600;margin-bottom:4px}
   <button data-tab="merchants">Merchant success rates</button>
   <button data-tab="composition">Composition</button>
   <button data-tab="details">Accounts &amp; merchants</button>
+  <button data-tab="sessions">Session length</button>
 </div>
 
 <div class="tab-content active" id="tab-overview">
@@ -168,23 +171,47 @@ h1{font-size:20px;font-weight:600;margin-bottom:4px}
   </div>
 </div>
 
+<div class="tab-content" id="tab-sessions">
+  <div style="font-size:11px;color:var(--text2);margin-bottom:1.25rem;line-height:1.6;max-width:860px">
+    <strong style="color:var(--text)">Credential session lifetime</strong> — how long a user's vendor-portal credentials remain valid between login prompts.
+    <ul style="margin:6px 0 0 16px;color:var(--text3)">
+      <li><strong>Metric:</strong> time from a <code>login_requested</code> / <code>reconnect_requested</code> event to the next such event, for the same <strong>user &times; vendor</strong> pair (not account — each person holds their own portal credentials).</li>
+      <li><strong>Closed sessions:</strong> both login events exist. Included when at least one <code>task_completed</code> occurred in between, confirming the user actually authenticated.</li>
+      <li><strong>Active sessions:</strong> no re-login prompt yet; duration = login to now. Included only when ≥1 successful fetch <em>and</em> ≥2 total fetch attempts followed the login — ruling out one-off fetches that were never retried (no re-login ≠ session still valid; it may simply mean nobody tried again).</li>
+      <li><strong>Fetches/session:</strong> all fetch attempts (any outcome) that fell within the session window.</li>
+    </ul>
+    <span style="color:var(--text3)">Computed across all historical data — the date filter above does not apply here.</span>
+  </div>
+  <div class="metrics" id="sess-metrics" style="grid-template-columns:repeat(4,1fr)"></div>
+  <div class="charts" style="margin-top:1.5rem">
+    <div class="panel"><div class="panel-title">Avg session length by vendor (top 15, days)</div><div style="position:relative;width:100%;height:280px"><canvas id="sessChart"></canvas></div></div>
+    <div class="panel"><div class="panel-title">Sessions measured per vendor (top 15)</div><div style="position:relative;width:100%;height:280px"><canvas id="sessCountChart"></canvas></div></div>
+  </div>
+  <div style="margin-top:1.5rem">
+    <div class="header-row"><div class="panel-title" style="margin-bottom:0">Session length — account &times; vendor detail</div><input type="text" id="sess-search" class="search-box" placeholder="Search user, merchant or account…"></div>
+    <div style="overflow-x:auto"><table class="tbl"><thead><tr id="sess-header"></tr></thead><tbody id="sess-body"></tbody></table></div>
+  </div>
+</div>
+
 <div class="footer" id="footer"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script>
 const RAW=/* __RAW_DATA__ */;
+const SESSION=/* __SESSION_DATA__ */;
 
 const isDk=matchMedia('(prefers-color-scheme:dark)').matches;
 const COL={s:isDk?'#3cc88a':'#1a8a5f',l:isDk?'#6fa3e0':'#3266ad',ca:isDk?'#e0b050':'#c47f17',f:isDk?'#e08060':'#c0502a',b:isDk?'#e06060':'#a32d2d'};
 const SEGCOL={payhawk_live:isDk?'#6fa3e0':'#3266ad',customer_live:isDk?'#3cc88a':'#1a8a5f',internal:isDk?'#a78bfa':'#7B61B8'};
 const SEGLBL={payhawk_live:'Payhawk live',customer_live:'Customer live',internal:'Internal testing'};
-const INICOL={chat:isDk?'#e0b050':'#c47f17',chasing:isDk?'#a78bfa':'#7B61B8'};
-const INILBL={chat:'User prompt',chasing:'Auto chasing'};
+const INICOL={chat:isDk?'#e0b050':'#c47f17',chasing:isDk?'#a78bfa':'#7B61B8',schedule:isDk?'#5ec8c8':'#2d8a8a'};
+const INILBL={chat:'User prompt',chasing:'Auto chasing',schedule:'Schedule'};
 const LBL={s:'Success',l:'Login requested',ca:'Captcha',f:'Fetch failed',b:'Agent blocked'};
+const SESS_COL=isDk?'#a78bfa':'#7B61B8';
 const gridColor=isDk?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
 const tickColor=isDk?'#999':'#888';
 const segKeys=['payhawk_live','customer_live','internal'];
-const iniKeys=['chat','chasing'];
+const iniKeys=['chat','chasing','schedule'];
 
 const allDates=RAW.map(r=>r.dt).sort();
 const minDate=allDates[0],maxDate=allDates[allDates.length-1];
@@ -202,7 +229,7 @@ function getF(){
   if(gAccts.length)d=d.filter(r=>gAccts.includes(r.aid));
   return d;
 }
-function refresh(){rebuildAll(getF());}
+function refresh(){rebuildAll(getF());if(document.getElementById('tab-sessions').classList.contains('active'))renderSessionTab();}
 
 document.getElementById('df-apply').addEventListener('click',()=>{document.querySelectorAll('#df-7d,#df-14d,#df-all').forEach(b=>b.classList.remove('active'));gDF=document.getElementById('df-from').value;gDT=document.getElementById('df-to').value;refresh();});
 document.getElementById('df-all').addEventListener('click',e=>{document.querySelectorAll('#df-7d,#df-14d,#df-all').forEach(b=>b.classList.remove('active'));e.target.classList.add('active');gDF=minDate;gDT=maxDate;document.getElementById('df-from').value=minDate;document.getElementById('df-to').value=maxDate;refresh();});
@@ -218,7 +245,7 @@ function renderTags(){acctTags.innerHTML=gAccts.map(a=>'<span class="active-tag"
 acctInput.addEventListener('keydown',e=>{if(e.key!=='Enter')return;const q=acctInput.value.trim().toLowerCase();if(!q)return;const m=allAccounts.find(a=>a.toLowerCase().includes(q));if(m&&!gAccts.includes(m)){gAccts.push(m);renderTags();acctInput.value='';refresh();}else acctInput.value='';});
 acctTags.addEventListener('click',e=>{const x=e.target.closest('.x');if(!x)return;gAccts=gAccts.filter(a=>a!==x.dataset.aid);renderTags();refresh();});
 
-document.getElementById('tabs').addEventListener('click',e=>{const btn=e.target.closest('button');if(!btn)return;document.querySelectorAll('.tab-bar button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+btn.dataset.tab).classList.add('active');});
+document.getElementById('tabs').addEventListener('click',e=>{const btn=e.target.closest('button');if(!btn)return;document.querySelectorAll('.tab-bar button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+btn.dataset.tab).classList.add('active');if(btn.dataset.tab==='sessions')renderSessionTab();});
 
 let ch={};function dc(id){if(ch[id]){ch[id].destroy();delete ch[id];}}
 
@@ -240,7 +267,7 @@ function rebuildAll(data){
     {label:'Login requested',value:pL+'%',sub:'Auth wall',cls:'color:'+COL.l},
     {label:'Fetch failed',value:pF+'%',sub:'Post-login fail',cls:'color:'+COL.f},
     {label:'Captcha + blocked',value:(pCa+pB).toFixed(1)+'%',sub:'Anti-bot',cls:'color:'+COL.ca},
-    {label:'Auto chasing',value:total?(Math.round(1000*(iniCounts.chasing||0)/total)/10)+'%':'0%',sub:(iniCounts.chasing||0)+' auto / '+(iniCounts.chat||0)+' user',cls:'color:'+INICOL.chasing}
+    {label:'Automation',value:total?(Math.round(1000*((iniCounts.chasing||0)+(iniCounts.schedule||0))/total)/10)+'%':'0%',sub:(iniCounts.chat||0)+' user / '+(iniCounts.chasing||0)+' chase / '+(iniCounts.schedule||0)+' sched.',cls:'color:'+INICOL.chasing}
   ].map(m=>'<div class="metric"><div class="metric-label">'+m.label+'</div><div class="metric-val" style="'+(m.cls||'')+'">'+m.value+'</div><div class="metric-sub">'+m.sub+'</div></div>').join('');
 
   dc('donut');const dV=[pS,pL,pCa,pF,pB];
@@ -285,7 +312,7 @@ function rebuildAll(data){
   const iniBadge=ini=>'<span class="dp-ini" style="background:'+(INICOL[ini]||'#888')+'22;color:'+(INICOL[ini]||'#888')+'">'+(INILBL[ini]||ini)+'</span>';
   const aa={};
   data.forEach(r=>{
-    if(!aa[r.aid])aa[r.aid]={id:r.aid,seg:r.seg,a:0,s:0,l:0,ca:0,f:0,b:0,chat:0,chasing:0,provs:{},dates:[]};
+    if(!aa[r.aid])aa[r.aid]={id:r.aid,seg:r.seg,a:0,s:0,l:0,ca:0,f:0,b:0,chat:0,chasing:0,schedule:0,provs:{},dates:[]};
     const a=aa[r.aid];a.a+=r.a;a.s+=r.s;a.l+=r.l;a.ca+=r.ca;a.f+=r.f;a.b+=r.b;a[r.ini]=(a[r.ini]||0)+r.a;a.dates.push(r.dt);
     const pk=r.pn+'|||'+r.ini;
     if(!a.provs[pk])a.provs[pk]={pn:r.pn,ini:r.ini,a:0,s:0,l:0,ca:0,f:0,b:0,dates:[]};
@@ -300,7 +327,7 @@ function rebuildAll(data){
     {key:'p',label:'Merchants',fmt:v=>v},
     {key:'s',label:'Success',fmt:(v,r)=>r.a?'<span style="color:'+COL.s+'">'+v+'</span> <span style="color:var(--text3)">('+Math.round(100*v/r.a)+'%)</span>':'0'},
     {key:'l',label:'Login',fmt:v=>v||''},{key:'ca',label:'Captcha',fmt:v=>v||''},{key:'f',label:'Failed',fmt:v=>v||''},{key:'b',label:'Blocked',fmt:v=>v||''},
-    {key:'chat',label:'User',fmt:v=>v||''},{key:'chasing',label:'Auto',fmt:v=>v||''},
+    {key:'chat',label:'User',fmt:v=>v||''},{key:'chasing',label:'Auto',fmt:v=>v||''},{key:'schedule',label:'Sched.',fmt:v=>v||''},
     {key:'first',label:'First',fmt:v=>v?v.slice(5):'\u2014'},{key:'last',label:'Last',fmt:v=>v?v.slice(5):'\u2014'}
   ];
   const colSpan=acctCols.length;
@@ -334,6 +361,67 @@ function rebuildAll(data){
   document.getElementById('merch-header').onclick=e=>{const th=e.target.closest('th');if(!th)return;const k=th.dataset.msort;mSort={key:k,dir:mSort.key===k?-mSort.dir:-1};renderMerch();};
   document.getElementById('merchant-search').oninput=e=>{mFilt=e.target.value.toLowerCase();renderMerch();};
 }
+let sessSort={key:'n',dir:-1},sessFilt='';
+function renderSessionTab(){
+  let data=SESSION.filter(r=>(gSeg==='all'||r.seg===gSeg)&&(!gAccts.length||gAccts.includes(r.aid)));
+  if(sessFilt)data=data.filter(r=>r.uid.toLowerCase().includes(sessFilt)||r.pn.toLowerCase().includes(sessFilt)||r.aid.toLowerCase().includes(sessFilt));
+  const totalN=data.reduce((s,r)=>s+r.n,0);
+  const avgH=totalN>0?data.reduce((s,r)=>s+r.avg*r.n,0)/totalN:0;
+  const p50H=totalN>0?data.reduce((s,r)=>s+r.p50*r.n,0)/totalN:0;
+  const fmtH=h=>{if(!h&&h!==0)return'—';if(h>=48)return(h/24).toFixed(1)+'d';return h.toFixed(1)+'h';};
+  const segBadge=seg=>'<span class="badge" style="background:'+SEGCOL[seg]+'22;color:'+SEGCOL[seg]+'">'+SEGLBL[seg]+'</span>';
+
+  const uniqUsers=new Set(data.map(r=>r.uid)).size;
+  const activePairs=data.filter(r=>r.active).length;
+  document.getElementById('sess-metrics').innerHTML=[
+    {label:'Avg session length',value:fmtH(avgH),sub:'Credential lifetime (weighted)'},
+    {label:'Median session length',value:fmtH(p50H),sub:'P50 (weighted by sessions)'},
+    {label:'Sessions measured',value:totalN.toLocaleString(),sub:'Confirmed login → re-login gaps'},
+    {label:'Active sessions',value:activePairs.toLocaleString(),sub:'of '+data.length+' user × vendor pairs'}
+  ].map(m=>'<div class="metric"><div class="metric-label">'+m.label+'</div><div class="metric-val" style="color:'+SESS_COL+'">'+m.value+'</div><div class="metric-sub">'+m.sub+'</div></div>').join('');
+
+  // Aggregate by vendor
+  const byV={};
+  data.forEach(r=>{if(!byV[r.pn])byV[r.pn]={pn:r.pn,n:0,wavg:0,wp50:0};byV[r.pn].n+=r.n;byV[r.pn].wavg+=r.avg*r.n;byV[r.pn].wp50+=r.p50*r.n;});
+  const vList=Object.values(byV).map(v=>({pn:v.pn,n:v.n,avg:v.wavg/v.n,p50:v.wp50/v.n}));
+
+  dc('sessChart');
+  const top15avg=[...vList].sort((a,b)=>b.avg-a.avg).slice(0,15);
+  if(top15avg.length){
+    ch.sessChart=new Chart(document.getElementById('sessChart'),{type:'bar',data:{labels:top15avg.map(v=>v.pn),datasets:[
+      {label:'Avg',data:top15avg.map(v=>+(v.avg/24).toFixed(2)),backgroundColor:SESS_COL,borderRadius:4,barThickness:12},
+      {label:'Median',data:top15avg.map(v=>+(v.p50/24).toFixed(2)),backgroundColor:SESS_COL+'66',borderRadius:4,barThickness:12}
+    ]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{color:tickColor,font:{size:10}}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+fmtH(c.parsed.x*24)+' ('+top15avg[c.dataIndex].n+' sessions)'}}},scales:{x:{grid:{color:gridColor},ticks:{color:tickColor,font:{size:10}},title:{display:true,text:'days',color:tickColor,font:{size:10}}},y:{grid:{display:false},ticks:{color:isDk?'#ccc':'#555',font:{size:10}}}}}});
+  }
+
+  dc('sessCountChart');
+  const top15n=[...vList].sort((a,b)=>b.n-a.n).slice(0,15);
+  if(top15n.length){
+    ch.sessCountChart=new Chart(document.getElementById('sessCountChart'),{type:'bar',data:{labels:top15n.map(v=>v.pn),datasets:[{label:'Sessions',data:top15n.map(v=>v.n),backgroundColor:SESS_COL+'99',borderRadius:4,barThickness:14}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.parsed.x+' sessions — avg '+fmtH(top15n[c.dataIndex].avg)}}},scales:{x:{grid:{color:gridColor},ticks:{color:tickColor,font:{size:10}}},y:{grid:{display:false},ticks:{color:isDk?'#ccc':'#555',font:{size:10}}}}}});
+  }
+
+  const sCols=[
+    {key:'active',label:'',fmt:v=>v?'<span class="badge" style="background:#1a8a5f22;color:'+COL.s+'">active</span>':''},
+    {key:'uid',label:'User'},
+    {key:'pn',label:'Merchant'},
+    {key:'aid',label:'Account',fmt:v=>v.replace(/_[a-f0-9]{8}$/,'').replace(/_demo$/,'').replaceAll('_',' ')},
+    {key:'seg',label:'Segment',fmt:v=>segBadge(v)},
+    {key:'n',label:'Sessions'},
+    {key:'avg_attempts',label:'Fetches/session'},
+    {key:'avg_successes',label:'Success/session'},
+    {key:'avg',label:'Avg length',fmt:v=>fmtH(v)},
+    {key:'p50',label:'Median',fmt:v=>fmtH(v)},
+    {key:'min',label:'Min',fmt:v=>fmtH(v)},
+    {key:'max',label:'Max',fmt:v=>fmtH(v)}
+  ];
+  document.getElementById('sess-header').innerHTML=sCols.map(c=>'<th data-ssort="'+c.key+'">'+c.label+(sessSort.key===c.key?(sessSort.dir>0?' ▲':' ▼'):'')+'</th>').join('');
+  const sorted=[...data].sort((a,b)=>{if(a.active!==b.active)return a.active?-1:1;const av=a[sessSort.key],bv=b[sessSort.key];if(typeof av==='number')return(av-bv)*sessSort.dir;return String(av).localeCompare(String(bv))*sessSort.dir;});
+  document.getElementById('sess-body').innerHTML=sorted.map(r=>'<tr>'+sCols.map(c=>'<td>'+(c.fmt?c.fmt(r[c.key]):r[c.key])+'</td>').join('')+'</tr>').join('');
+
+  document.getElementById('sess-header').onclick=e=>{const th=e.target.closest('th');if(!th)return;const k=th.dataset.ssort;sessSort={key:k,dir:sessSort.key===k?-sessSort.dir:-1};renderSessionTab();};
+  document.getElementById('sess-search').oninput=e=>{sessFilt=e.target.value.toLowerCase();renderSessionTab();};
+}
+
 refresh();
 </script>
 </body>
